@@ -443,13 +443,18 @@ static int mount_fstab(const char* fstabfile, int mount_mode) {
             ret = -1;
         }
     } else if (pid == 0) {
+        std::string filename_val;
+        if (!expand_props(fstabfile, &filename_val)) {
+            PLOG(ERROR) << "mount_all: cannot expand '" << fstabfile << "'";
+            _exit(-1);
+        }
         /* child, call fs_mgr_mount_all() */
 
         // So we can always see what fs_mgr_mount_all() does.
         // Only needed if someone explicitly changes the default log level in their init.rc.
         android::base::ScopedLogSeverity info(android::base::INFO);
 
-        struct fstab* fstab = fs_mgr_read_fstab(fstabfile);
+        struct fstab* fstab = fs_mgr_read_fstab(filename_val.c_str());
         int child_ret = fs_mgr_mount_all(fstab, mount_mode);
         fs_mgr_free_fstab(fstab);
         if (child_ret == -1) {
@@ -534,7 +539,6 @@ static int queue_fs_event(int code) {
  * not return.
  */
 static int do_mount_all(const std::vector<std::string>& args) {
-    std::size_t na = 0;
     bool import_rc = true;
     bool queue_event = true;
     int mount_mode = MOUNT_MODE_DEFAULT;
@@ -542,7 +546,7 @@ static int do_mount_all(const std::vector<std::string>& args) {
     std::size_t path_arg_end = args.size();
     const char* prop_post_fix = "default";
 
-    for (na = args.size() - 1; na > 1; --na) {
+    for (std::size_t na = args.size() - 1; na > 1; --na) {
         if (args[na] == "--early") {
             path_arg_end = na;
             queue_event = false;
