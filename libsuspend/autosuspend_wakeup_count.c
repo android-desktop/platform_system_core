@@ -30,6 +30,7 @@
 #include <unistd.h>
 
 #include <log/log.h>
+#include <cutils/properties.h>
 
 #include "autosuspend_ops.h"
 
@@ -38,11 +39,13 @@
 
 #define BASE_SLEEP_TIME 100000
 
+static const char *default_sleep_state = "mem";
+static const char *fallback_sleep_state = "freeze";
+
 static int state_fd;
 static int wakeup_count_fd;
 static pthread_t suspend_thread;
 static sem_t suspend_lockout;
-static const char *sleep_state = "mem";
 static void (*wakeup_func)(bool success) = NULL;
 static int sleep_time = BASE_SLEEP_TIME;
 
@@ -53,6 +56,37 @@ static void update_sleep_time(bool success) {
     }
     // double sleep time after each failure up to one minute
     sleep_time = MIN(sleep_time * 2, 60000000);
+}
+
+static bool sleep_state_available(const char *state)
+{
+    char buf[64];
+    int fd = TEMP_FAILURE_RETRY(open(SYS_POWER_STATE, O_RDONLY));
+    if (fd < 0) {
+        ALOGE("Error reading power state: %s", SYS_POWER_STATE);
+        return false;
+    }
+    TEMP_FAILURE_RETRY(read(fd, buf, 64));
+    close(fd);
+    return !!strstr(buf, state);
+}
+
+static const char *get_sleep_state()
+{
+    static char sleep_state[PROPERTY_VALUE_MAX] = "";
+
+    if (!sleep_state[0]) {
+        if (property_get("sleep.state", sleep_state, NULL) > 0) {
+            ALOGD("autosuspend using sleep.state property (%s)", sleep_state);
+        } else if (sleep_state_available(default_sleep_state)) {
+            ALOGD("autosuspend using default sleep_state (%s)", default_sleep_state);
+            strncpy(sleep_state, default_sleep_state, PROPERTY_VALUE_MAX);
+        } else {
+            ALOGW("autosuspend \"%s\" unavailable, using fallback sleep.state (%s)", default_sleep_state, fallback_sleep_state);
+            strncpy(sleep_state, fallback_sleep_state, PROPERTY_VALUE_MAX);
+        }
+    }
+    return sleep_state;
 }
 
 static void *suspend_thread_func(void *arg __attribute__((unused)))
@@ -96,6 +130,7 @@ static void *suspend_thread_func(void *arg __attribute__((unused)))
             strerror_r(errno, buf, sizeof(buf));
             ALOGE("Error writing to %s: %s\n", SYS_POWER_WAKEUP_COUNT, buf);
         } else {
+            const char *sleep_state = get_sleep_state();
             ALOGV("%s: write %s to %s\n", __func__, sleep_state, SYS_POWER_STATE);
             ret = TEMP_FAILURE_RETRY(write(state_fd, sleep_state, strlen(sleep_state)));
             if (ret >= 0) {
