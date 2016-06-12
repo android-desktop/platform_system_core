@@ -655,10 +655,52 @@ static int do_rmdir(const std::vector<std::string>& args) {
     return rmdir(args[1].c_str());
 }
 
+// Read persist property from /data/property directly, because it may not have loaded.
+// If the file not found, try to call GetProperty to get the vaule from /default.prop.
+static std::string persist_property_get(const std::string& name)
+{
+    std::string result, err;
+    return ReadFile("/data/property/" + name, &result, &err) ? result : base::GetProperty(name, result);
+}
+
 static int do_sysclktz(const std::vector<std::string>& args) {
     struct timezone tz = {};
-    if (android::base::ParseInt(args[1], &tz.tz_minuteswest) && settimeofday(NULL, &tz) != -1) {
-        return 0;
+
+    if (persist_property_get("persist.rtc_local_time") == "1") {
+        struct timeval tv = {};
+
+        if (gettimeofday(&tv, NULL)) {
+            LOG(ERROR) << "sysclktz: failed to call gettimeofday";
+            return -1;
+        }
+
+        // Set system time and saved system zone in case of network
+        // not available and auto syncing time not available.
+        std::string time_zone = persist_property_get("persist.sys.timezone");
+        if (time_zone.empty()) {
+            LOG(INFO) << "sysclktz: persist.sys.timezone not found";
+            tz.tz_minuteswest = 0;
+        } else {
+            LOG(INFO) << "sysclktz: persist.sys.timezone: " << time_zone;
+            // localtime_r need the property, we need to set it
+            property_set("persist.sys.timezone", time_zone.c_str());
+            time_t t = tv.tv_sec;
+            struct tm tm;
+            if (localtime_r(&t, &tm)) {
+                tz.tz_minuteswest = -(tm.tm_gmtoff / 60);
+                LOG(INFO) << "sysclktz: tz.tz_minuteswest: " << tz.tz_minuteswest;
+            }
+        }
+
+        // At this moment, system time should be local
+        // time too, set it back to utc which linux required.
+        tv.tv_sec += tz.tz_minuteswest * 60;
+        if (!settimeofday(&tv, &tz)) {
+            return 0;
+        }
+        LOG(ERROR) << "sysclktz: failed to call settimeofdays";
+    } else if (android::base::ParseInt(args[1], &tz.tz_minuteswest)) {
+        return settimeofday(NULL, &tz);
     }
     return -1;
 }
