@@ -43,6 +43,7 @@ init_cflags += \
 
 include $(CLEAR_VARS)
 LOCAL_CPPFLAGS := $(init_cflags)
+LOCAL_CPPFLAGS += -DTARGET_PRODUCT=\"$(TARGET_PRODUCT)\"
 LOCAL_SRC_FILES:= \
     bootchart.cpp \
     builtins.cpp \
