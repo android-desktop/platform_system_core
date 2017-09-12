@@ -29,6 +29,7 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <cutils/klog.h>
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
@@ -84,8 +85,8 @@ static std::string ComputeContextFromExecutable(std::string& service_name,
         free(new_con);
     }
     if (rc == 0 && computed_context == mycon.get()) {
-        LOG(ERROR) << "service " << service_name << " does not have a SELinux domain defined";
-        return "";
+        KLOG_WARNING("service", "%s does not have a SELinux domain defined", service_name.c_str());
+        return "skip";
     }
     if (rc < 0) {
         LOG(ERROR) << "could not get context while starting '" << service_name << "'";
