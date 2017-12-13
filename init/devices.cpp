@@ -22,6 +22,8 @@
 #include <unistd.h>
 
 #include <memory>
+#include <set>
+#include <thread>
 
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
@@ -29,9 +31,11 @@
 #include <private/android_filesystem_config.h>
 #include <selinux/android.h>
 #include <selinux/selinux.h>
+#include <cutils/probe_module.h>
 
 #include "ueventd.h"
 #include "util.h"
+#include "init_parser.h"
 
 #ifdef _INIT_INIT_H
 #error "Do not include init.h in files used by ueventd or watchdogd; it will expose init's globals"
@@ -374,6 +378,7 @@ void DeviceHandler::HandleDevice(const std::string& action, const std::string& d
 
 void DeviceHandler::HandleDeviceEvent(const Uevent& uevent) {
     if (uevent.action == "add" || uevent.action == "change" || uevent.action == "online") {
+        LoadModule(uevent);
         FixupSysPermissions(uevent.path, uevent.subsystem);
     }
 
@@ -418,6 +423,88 @@ void DeviceHandler::HandleDeviceEvent(const Uevent& uevent) {
     mkdir_recursive(Dirname(devpath), 0755, sehandle_);
 
     HandleDevice(uevent.action, devpath, block, uevent.major, uevent.minor, links);
+}
+
+void DeviceHandler::HandleModuleEvent(const Uevent& uevent, std::vector<std::string>& mod_queue)
+{
+    if (!uevent.modalias.empty() && uevent.action == "add") {
+        if (mod_aliases_.empty()) {
+            ReadModulesDescFiles();
+        }
+        for (auto& entry : deferred_mod_aliases_) {
+            if (!fnmatch(entry.first.c_str(), uevent.modalias.c_str(), 0)) {
+                mod_queue.emplace_back(entry.second);
+            }
+        }
+    }
+}
+
+bool DeviceHandler::LoadModule(const Uevent& uevent) const
+{
+    bool ret = false;
+    if (!uevent.modalias.empty()) {
+        for (auto& entry : mod_aliases_) {
+            if (!fnmatch(entry.first.c_str(), uevent.modalias.c_str(), 0)) {
+                ret |= LoadModule(entry.second);
+            }
+        }
+    }
+    return ret;
+}
+
+bool DeviceHandler::LoadModule(const std::string& mod) const
+{
+    bool ret = !insmod_by_dep(mod.c_str(), "", NULL, 0, NULL);
+    if (!ret) {
+        PLOG(WARNING) << "failed to load " << mod;
+    }
+    return ret;
+}
+
+void DeviceHandler::ReadModulesDescFiles()
+{
+    auto line_parser = [] (auto args, auto err, std::set<std::string>* set_) -> bool {
+        if (args.size() < 2) {
+            *err = "must have 2 entries";
+            return false;
+        }
+
+        set_->emplace(args[1]);
+        return true;
+    };
+    using namespace std::placeholders;
+    std::set<std::string> blacklist, deferred;
+
+    Parser parser;
+    parser.AddSingleLineParser("blacklist", std::bind(line_parser, _1, _2, &blacklist));
+    parser.AddSingleLineParser("deferred", std::bind(line_parser, _1, _2, &deferred));
+
+    // wait until the file is ready
+    while (!parser.ParseConfig("/system/etc/modules.blacklist")) {
+        std::this_thread::sleep_for(100ms);
+    }
+
+    parser.AddSingleLineParser("alias", [&] (auto args, auto err) {
+        if (args.size() < 3) {
+            *err = "must have 3 entries";
+            return false;
+        }
+        if (deferred.find(args[2]) != deferred.end()) {
+            deferred_mod_aliases_.emplace(args[1], args[2]);
+        } else if (blacklist.find(args[2]) == blacklist.end()) {
+            mod_aliases_.emplace(args[1], args[2]);
+        }
+        return true;
+    });
+    char alias[PATH_MAX];
+    strlcat(get_default_mod_path(alias), "modules.alias", PATH_MAX);
+    parser.ParseConfig(alias);
+}
+
+void DeviceHandler::OnColdBootDone()
+{
+    mod_aliases_.insert(deferred_mod_aliases_.begin(), deferred_mod_aliases_.end());
+    deferred_mod_aliases_.clear();
 }
 
 DeviceHandler::DeviceHandler(std::vector<Permissions> dev_permissions,

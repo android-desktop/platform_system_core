@@ -32,7 +32,6 @@
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/syscall.h>
 #include <sys/system_properties.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -47,6 +46,7 @@
 #include <android-base/strings.h>
 #include <bootloader_message/bootloader_message.h>
 #include <cutils/android_reboot.h>
+#include <cutils/probe_module.h>
 #include <ext4_utils/ext4_crypt.h>
 #include <ext4_utils/ext4_crypt_init_extensions.h>
 #include <fs_mgr.h>
@@ -72,20 +72,6 @@ namespace android {
 namespace init {
 
 static constexpr std::chrono::nanoseconds kCommandRetryTimeout = 5s;
-
-static int insmod(const char *filename, const char *options, int flags) {
-    int fd = open(filename, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-    if (fd == -1) {
-        PLOG(ERROR) << "insmod: open(\"" << filename << "\") failed";
-        return -1;
-    }
-    int rc = syscall(__NR_finit_module, fd, options, flags);
-    if (rc == -1) {
-        PLOG(ERROR) << "finit_module for \"" << filename << "\" failed";
-    }
-    close(fd);
-    return rc;
-}
 
 static int __ifupdown(const char *interface, int up) {
     struct ifreq ifr;
