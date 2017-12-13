@@ -995,6 +995,10 @@ static void InstallRebootSignalHandlers() {
 }
 
 int main(int argc, char** argv) {
+    if (!strcmp(basename(argv[0]), "modprobe")) {
+        return modprobe_main(argc, argv);
+    }
+
     if (!strcmp(basename(argv[0]), "ueventd")) {
         return ueventd_main(argc, argv);
     }

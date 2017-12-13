@@ -31,6 +31,7 @@
 #include <private/android_filesystem_config.h>
 #include <selinux/android.h>
 #include <selinux/selinux.h>
+#include <cutils/klog.h>
 #include <cutils/probe_module.h>
 
 #include "ueventd.h"
@@ -520,6 +521,41 @@ DeviceHandler::DeviceHandler(std::vector<Permissions> dev_permissions,
 DeviceHandler::DeviceHandler()
     : DeviceHandler(std::vector<Permissions>{}, std::vector<SysfsPermissions>{},
                     std::vector<Subsystem>{}, false) {}
+
+int modprobe_main(int argc, char **argv)
+{
+    // We only accept requests from root user (kernel)
+    if (getuid()) return -EPERM;
+
+    // Kernel will launch a user space program specified by
+    // /proc/sys/kernel/modprobe to load modules.
+    // No deferred loading in this case.
+    while (argc > 1 && (!strcmp(argv[1], "-q") || !strcmp(argv[1], "--"))) {
+        klog_set_level(KLOG_NOTICE_LEVEL);
+        argc--, argv++;
+    }
+
+    if (argc < 2) {
+        // it is called without enough arguments
+        return -EINVAL;
+    }
+
+    std::string options;
+    if (argc > 2) {
+        options = argv[2];
+        for (int i = 3; i < argc; ++i) {
+            options += ' ';
+            options += argv[i];
+        }
+    }
+    KLOG_NOTICE("modprobe", "%s %s", argv[1], options.c_str());
+
+    Uevent uevent = { .modalias = argv[1] };
+    DeviceHandler dh;
+    dh.ReadModulesDescFiles();
+    dh.OnColdBootDone();
+    return dh.LoadModule(uevent) || dh.LoadModule(uevent.modalias) ? 0 : -1;
+}
 
 }  // namespace init
 }  // namespace android
