@@ -141,7 +141,7 @@ void ColdBoot::UeventHandlerMain(unsigned int process_num, unsigned int total_pr
 void ColdBoot::RegenerateUevents() {
     uevent_listener_.RegenerateUevents([this](const Uevent& uevent) {
         HandleFirmwareEvent(uevent);
-        device_handler_.HandleModuleEvent(uevent, mod_queue_);
+        device_handler_.HandleModuleEvent(uevent, &mod_queue_);
         uevent_queue_.emplace_back(std::move(uevent));
         return ListenerAction::kContinue;
     });
@@ -285,6 +285,7 @@ int ueventd_main(int argc, char** argv) {
 
     uevent_listener.Poll([&device_handler](const Uevent& uevent) {
         HandleFirmwareEvent(uevent);
+        device_handler.HandleModuleEvent(uevent);
         device_handler.HandleDeviceEvent(uevent);
         return ListenerAction::kContinue;
     });

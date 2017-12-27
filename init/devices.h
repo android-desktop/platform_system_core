@@ -108,7 +108,7 @@ class DeviceHandler {
     ~DeviceHandler(){};
 
     void HandleDeviceEvent(const Uevent& uevent);
-    void HandleModuleEvent(const Uevent& uevent, std::vector<std::string>& mod_queue);
+    void HandleModuleEvent(const Uevent& uevent, std::vector<std::string>* mod_queue = nullptr);
     bool LoadModule(const Uevent& uevent) const;
     bool LoadModule(const std::string& mod) const;
     void ReadModulesDescFiles();

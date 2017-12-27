@@ -379,7 +379,6 @@ void DeviceHandler::HandleDevice(const std::string& action, const std::string& d
 
 void DeviceHandler::HandleDeviceEvent(const Uevent& uevent) {
     if (uevent.action == "add" || uevent.action == "change" || uevent.action == "online") {
-        LoadModule(uevent);
         FixupSysPermissions(uevent.path, uevent.subsystem);
     }
 
@@ -426,16 +425,23 @@ void DeviceHandler::HandleDeviceEvent(const Uevent& uevent) {
     HandleDevice(uevent.action, devpath, block, uevent.major, uevent.minor, links);
 }
 
-void DeviceHandler::HandleModuleEvent(const Uevent& uevent, std::vector<std::string>& mod_queue)
+void DeviceHandler::HandleModuleEvent(const Uevent& uevent, std::vector<std::string>* mod_queue)
 {
     if (!uevent.modalias.empty() && uevent.action == "add") {
         if (mod_aliases_.empty()) {
             ReadModulesDescFiles();
         }
-        for (auto& entry : deferred_mod_aliases_) {
-            if (!fnmatch(entry.first.c_str(), uevent.modalias.c_str(), 0)) {
-                mod_queue.emplace_back(entry.second);
+        bool deferred = false;
+        if (mod_queue) {
+            for (auto& entry : deferred_mod_aliases_) {
+                if (!fnmatch(entry.first.c_str(), uevent.modalias.c_str(), 0)) {
+                    mod_queue->emplace_back(entry.second);
+                    deferred = true;
+                }
             }
+        }
+        if (!deferred) {
+            LoadModule(uevent);
         }
     }
 }
@@ -443,11 +449,9 @@ void DeviceHandler::HandleModuleEvent(const Uevent& uevent, std::vector<std::str
 bool DeviceHandler::LoadModule(const Uevent& uevent) const
 {
     bool ret = false;
-    if (!uevent.modalias.empty()) {
-        for (auto& entry : mod_aliases_) {
-            if (!fnmatch(entry.first.c_str(), uevent.modalias.c_str(), 0)) {
-                ret |= LoadModule(entry.second);
-            }
+    for (auto& entry : mod_aliases_) {
+        if (!fnmatch(entry.first.c_str(), uevent.modalias.c_str(), 0)) {
+            ret |= LoadModule(entry.second);
         }
     }
     return ret;
