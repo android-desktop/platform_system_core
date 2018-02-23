@@ -457,9 +457,9 @@ bool DeviceHandler::LoadModule(const Uevent& uevent) const
     return ret;
 }
 
-bool DeviceHandler::LoadModule(const std::string& mod) const
+bool DeviceHandler::LoadModule(const std::string& mod, const char* options) const
 {
-    bool ret = !insmod_by_dep(mod.c_str(), "", NULL, 0, NULL);
+    bool ret = !insmod_by_dep(mod.c_str(), options, NULL, 0, NULL);
     if (!ret) {
         PLOG(WARNING) << "failed to load " << mod;
     }
@@ -558,7 +558,7 @@ int modprobe_main(int argc, char **argv)
     DeviceHandler dh;
     dh.ReadModulesDescFiles();
     dh.OnColdBootDone();
-    return dh.LoadModule(uevent) || dh.LoadModule(uevent.modalias) ? 0 : -1;
+    return dh.LoadModule(uevent) || dh.LoadModule(uevent.modalias, options.c_str()) ? 0 : -1;
 }
 
 }  // namespace init
