@@ -558,7 +558,7 @@ int modprobe_main(int argc, char **argv)
     DeviceHandler dh;
     dh.ReadModulesDescFiles();
     dh.OnColdBootDone();
-    return dh.LoadModule(uevent) || dh.LoadModule(uevent.modalias, options.c_str()) ? 0 : -1;
+    exit(!dh.LoadModule(uevent) && !dh.LoadModule(uevent.modalias, options.c_str()));
 }
 
 }  // namespace init
